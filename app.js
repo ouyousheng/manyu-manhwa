@@ -43,9 +43,27 @@ function card(b){
   const onShelf=location.hash.startsWith('#shelf');
   const saved=shelf.some(item=>item.id===b.id);
   const favorite=publicEdition&&!onShelf?`<button class="chip public-favorite" data-favorite="${esc(JSON.stringify({id:b.id,title,url:href,provider:b.provider,genre:b.genre}))}" aria-pressed="${saved}">${saved?'已收藏':'收藏'}</button>`:'';
-  return `<div class="shelf-item"><a class="book" href="${esc(href)}" ${external?'target="_blank" rel="noopener noreferrer"':''}><div class="cover">${cover}<span class="badge">${esc(genre)}</span><span class="cover-bottom">${esc(subtitle)}</span></div><h3>${esc(title)}</h3><div class="book-meta"><span>${external?(b.access||'平台作品页'):'站内读公开章'}</span><span>${external?'原站阅读 ↗':'章节 / 下载 →'}</span></div></a>${onShelf?`<button class="remove-book" data-remove-id="${esc(b.id)}" aria-label="移除${esc(title)}">×</button>`:favorite}</div>`;
+  return `<div class="shelf-item"><a class="book" href="${esc(href)}" ${external?'target="_blank" rel="noopener noreferrer"':''}><div class="cover">${cover}<span class="badge">${esc(genre)}</span><span class="cover-bottom">${esc(subtitle)}</span></div><h3>${esc(title)}</h3><div class="book-meta"><span>${external?(b.access||(publicEdition?(mainlandPlatforms.has(b.provider)?'中国大陆平台':'海外平台'):'平台作品页')):'站内读公开章'}</span><span>${external?'原站阅读 ↗':'章节 / 下载 →'}</span></div></a>${onShelf?`<button class="remove-book" data-remove-id="${esc(b.id)}" aria-label="移除${esc(title)}">×</button>`:favorite}</div>`;
+}
+const mainlandPlatforms=new Set(['kuaikan','dongman']);
+const mainlandReading={
+  '某天成为公主':{platform:'快看 简体中文',url:'https://www.kuaikanmanhua.com/web/topic/2991/'},
+  '我独自升级':{platform:'快看 简体中文',url:'https://www.kuaikanmanhua.com/web/topic/4319/'},
+  '反转练习生':{platform:'咚漫 简体中文',url:'https://www.dongmanmanhua.cn/FANTASY/fanzhuanlianxisheng/list?title_no=2795'},
+};
+function mainlandFirstGuide(guide){
+  const local=mainlandReading[guide?.title];
+  if(!local)return guide;
+  const url=originalUrl(local.url);
+  const editions=guide.editions.filter(edition=>originalUrl(edition.externalUrl||edition.url)!==url);
+  return {...guide,note:'中国大陆读者可先打开快看或咚漫。其他版本的网络和解锁要求以各原站为准。',editions:[
+    {title:guide.title,platform:local.platform,externalUrl:url,access:'中国大陆官方入口',
+      note:'可阅读的章节、免费范围和是否需要 App 以原站提示为准。'},
+    ...editions,
+  ]};
 }
 function readingGuide(guide){
+  if(publicEdition)guide=mainlandFirstGuide(guide);
   if(!guide)return '';
   return `<section class="edition-links reading-guide"><h2>${esc(guide.title)} · 免费阅读入口</h2>
     <p>${esc(guide.note)}</p><ul>${guide.editions.map(edition=>{
@@ -59,6 +77,7 @@ function readingGuide(guide){
 }
 function showDirectory(data,params){
   const {books,page,total,hasNextPage,counts,unavailable,providers,guide,matchCounts}=data;
+  const orderedBooks=publicEdition?[...books].sort((a,b)=>Number(mainlandPlatforms.has(b.provider))-Number(mainlandPlatforms.has(a.provider))):books;
   const query=params.get('q')||'';
   const option=(name,value,label)=>`<option value="${esc(value)}" ${params.get(name)===value?'selected':''}>${esc(label)}</option>`;
   const pageLink=number=>{const next=new URLSearchParams(params);next.set('page',number);return routeLink('library',next)};
@@ -73,7 +92,8 @@ function showDirectory(data,params){
   const matchedPlatforms=query?Object.entries(matchCounts).map(([id,count])=>
     `<a href="${esc(platformLink(id))}">${esc(providers[id].language)} · ${esc(providers[id].name)} ${count} 条</a>`).join(''):'';
   app.innerHTML=`<div class="eyebrow">MANHWA LIBRARY</div><h1 class="page-title">${query?'「'+esc(query)+'」的搜索结果':'韩漫与多语言书库'}</h1>
-    <p class="subtitle">${publicEdition?'按作品名查找官方阅读入口。同一作品各语言版开放的章节可能不同。':'想直接免费看，可选「站内读公开章」。同一作品各语言版开放的章节可能不同。'}</p>
+    <p class="subtitle">${publicEdition?'中国大陆读者可优先查看快看和咚漫。作品页会跳到官方平台，是否需要 App 或解锁以原站提示为准。':'想直接免费看，可选「站内读公开章」。同一作品各语言版开放的章节可能不同。'}</p>
+    ${publicEdition?`<div class="directory-sources" aria-label="中国大陆平台"><a href="${esc(platformLink('kuaikan'))}">优先查看快看 →</a><a href="${esc(platformLink('dongman'))}">优先查看咚漫 →</a></div>`:''}
     ${readingGuide(guide)}
     ${query&&(matchedPlatforms||params.has('provider'))?`<div class="directory-sources" aria-label="按匹配版本筛选">
       ${params.get('provider')&&params.get('provider')!=='all'?`<a href="${esc(platformLink('all'))}">查看所有平台匹配 →</a>`:''}
@@ -87,7 +107,7 @@ function showDirectory(data,params){
     <div class="directory-sources" aria-label="原站入口">${sourceLinks}</div>
     ${unavailable.length?`<p class="demo-note">暂时未能加载 ${esc(unavailable.join('、'))}。以下为已获取结果。<button class="secondary" type="button" data-retry>重试</button></p>`:''}
     <p class="source-caption">当前结果 ${total.toLocaleString('zh-CN')} 条 · 同一作品可能在多个平台出现。公开章节以来源实际提供为准。</p>
-    ${books.length?`<div class="grid">${books.map(card).join('')}</div>`:`<div class="empty"><h3>这一页没有作品</h3><p>可以换个译名或原名，或放宽筛选条件。</p><a class="secondary" href="#library">返回全部目录</a></div>`}
+    ${books.length?`<div class="grid">${orderedBooks.map(card).join('')}</div>`:`<div class="empty"><h3>这一页没有作品</h3><p>可以换个译名或原名，或放宽筛选条件。</p><a class="secondary" href="#library">返回全部目录</a></div>`}
     ${page>1||hasNextPage?`<nav class="directory-pages" aria-label="书库分页">${page>1?`<a class="secondary" href="${esc(pageLink(page-1))}">← 上一页</a>`:''}<span>第 ${page} 页</span>${hasNextPage?`<a class="secondary" href="${esc(pageLink(page+1))}">下一页 →</a>`:''}</nav>`:''}`;
 }
 function rankingRow(book){
